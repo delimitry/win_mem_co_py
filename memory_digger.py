@@ -7,6 +7,7 @@
 import sys
 import types
 import ctypes
+import argparse
 from ctypes import windll
 from cStringIO import StringIO
 from uncompyle2 import walker, scanner27
@@ -36,12 +37,13 @@ def get_python_pids():
     Return all running "python.exe" processes' PIDs
     """
     from ctypes import wintypes
+
     python_pids = []
     current_pid = GetCurrentProcessId()
     process_ids = (wintypes.DWORD * 0xffff)()
-    cb = ctypes.sizeof(process_ids)
+    process_ids_size = ctypes.sizeof(process_ids)
     bytes_returned = wintypes.DWORD()
-    res = EnumProcesses(ctypes.byref(process_ids), cb, ctypes.byref(bytes_returned))
+    res = EnumProcesses(ctypes.byref(process_ids), process_ids_size, ctypes.byref(bytes_returned))
     if not res:
         print 'Failed to get processes!'
         return python_pids
@@ -84,13 +86,12 @@ def decompile_code(code_object):
     Decompile Python code using `uncompyle2` tool.
     """
     # init vars
-    co = code_object
     showasm = False
     showast = False
     out = StringIO()
     scanner = scanner27.Scanner27()
     scanner.setShowAsm(showasm, out)
-    tokens, customize = scanner.disassemble(co)
+    tokens, customize = scanner.disassemble(code_object)
 
     #  Build AST from disassembly.
     walk = walker.Walker(out, scanner, showast=showast)
@@ -104,12 +105,12 @@ def decompile_code(code_object):
     # convert leading '__doc__ = "..." into doc string
     assert ast == 'stmts'
     try:
-        if ast[0][0] == walker.ASSIGN_DOC_STRING(co.co_consts[0]):
-            walk.print_docstring('', co.co_consts[0])
+        if ast[0][0] == walker.ASSIGN_DOC_STRING(code_object.co_consts[0]):
+            walk.print_docstring('', code_object.co_consts[0])
             del ast[0]
         if ast[-1] == walker.RETURN_NONE:
             ast.pop()  # remove last node
-        #todo: if empty, add 'pass'
+            #todo: if empty, add 'pass'
     except:
         pass
     walk.mod_globs = walker.find_globals(ast, set())
@@ -263,12 +264,14 @@ def find_code_objects(pids=None, print_struct=True, print_code=True, to_file=Fal
                 code_res = ''
                 code_res += '# %d decompiled' % decompiled_num + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
-                args = ', '.join(c.co_varnames.ob_items[:c.co_argcount])
-                if 4 & c.co_flags:
-                    args += ', *%s' % c.co_varnames.ob_items[c.co_argcount]
-                if 8 & c.co_flags:
-                    args += ', **%s' % c.co_varnames.ob_items[c.co_argcount + 1]
-                code_res += 'Decompiled function "%s(%s)" from "%s":' % (c.co_name.ob_sval, args, c.co_filename.ob_sval) + '\n'
+                func_args = ', '.join(c.co_varnames.ob_items[:c.co_argcount])
+                if c.co_flags & 4:  # CO_VARARGS
+                    func_args += ', *%s' % c.co_varnames.ob_items[c.co_argcount]
+                if c.co_flags & 8:  # CO_VARKEYWORDS
+                    func_args += ', **%s' % c.co_varnames.ob_items[c.co_argcount + 1]
+                func_name = c.co_name.ob_sval
+                file_name = c.co_filename.ob_sval
+                code_res += 'Decompiled function "%s(%s)" from "%s":' % (func_name, func_args, file_name) + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
                 code_res += dec_code + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
@@ -290,33 +293,48 @@ def find_code_objects(pids=None, print_struct=True, print_code=True, to_file=Fal
 
 
 def parse_arguments():
-    """ 
-    Parse variables from command line 
     """
-    import argparse
+    Parse variables from command line
+    """
     parser = argparse.ArgumentParser(description='Tool for searching Python structures in memory.')
-    parser.add_argument('-p', '--pids', nargs='*', type=int, default=None, help='Process IDs to search (default: all "python.exe" processes)')
+    parser.add_argument('-p', '--pids', nargs='*', type=int, default=None,
+                        help='Process IDs to search (default: all "python.exe" processes)')
     parser.add_argument('-f', '--frames', action='store_true', help='Search Python Frame Objects (default: disabled)')
     parser.add_argument('-c', '--code', action='store_true', help='Search Python Code Objects (default: disabled)')
-    parser.add_argument('-s', '--structure', action='store_false', help='Print Python Objects structure (default: enabled)')
+    parser.add_argument('-s', '--structure', action='store_false',
+                        help='Print Python Objects structure (default: enabled)')
     parser.add_argument('-d', '--decompile', action='store_false', help='Show decompiled code (default: enabled)')
     parser.add_argument('-o', '--output', nargs='?', type=argparse.FileType('ab', 0), help='File to save')
+
+    # print help if called without any arguments
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
     return parser.parse_args()
 
 
-if __name__ == '__main__':
+def main():
+    """
+    Main function
+    """
     args = parse_arguments()
-    to_file = False or args.output
+    save_to_file = False or args.output
     if args.frames:
         frames_list = []
-        frames, out_res = find_frame_objects(pids=args.pids, print_struct=args.structure, to_file=to_file)
-        if to_file:
+        frames, out_res = find_frame_objects(pids=args.pids, print_struct=args.structure, to_file=save_to_file)
+        if save_to_file:
             args.output.write(out_res)
             print 'done'
-        for a, f in frames.items():
-            frames_list.append((f.f_back, a))            
+        for addr, frame in frames.items():
+            frames_list.append((frame.f_back, addr))
     if args.code:
-        code_objects, out_res = find_code_objects(pids=args.pids, print_struct=args.structure, print_code=args.decompile, to_file=to_file)
-        if to_file:
+        code_objects, out_res = find_code_objects(pids=args.pids, print_struct=args.structure,
+                                                  print_code=args.decompile, to_file=save_to_file)
+        if save_to_file:
             args.output.write(out_res)
             print 'done'
+
+
+if __name__ == '__main__':
+    main()
