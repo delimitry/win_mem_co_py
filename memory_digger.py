@@ -196,7 +196,6 @@ def find_code_objects(pids=None, print_struct=True, print_code=True, to_file=Fal
         found_addresses = find_pattern_in_process_memory(pattern_str, pid)
         print found_addresses
         code_object = 0
-        decompiled_num = 0
         if to_file:
             print 'saving code objects to file...'
         for type_address in found_addresses:
@@ -253,7 +252,6 @@ def find_code_objects(pids=None, print_struct=True, print_code=True, to_file=Fal
 
                 try:
                     dec_code = decompile_code(func_code)
-                    decompiled_num += 1
                 except KeyboardInterrupt:
                     sys.exit()
                 except:
@@ -262,16 +260,17 @@ def find_code_objects(pids=None, print_struct=True, print_code=True, to_file=Fal
                     pass
 
                 code_res = ''
-                code_res += '# %d decompiled' % decompiled_num + '\n'
+                code_res += '# %d decompiled' % code_object + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
-                func_args = ', '.join(c.co_varnames.ob_items[:c.co_argcount])
+                func_args = c.co_varnames.ob_items[:c.co_argcount]
                 if c.co_flags & 4:  # CO_VARARGS
-                    func_args += ', *%s' % c.co_varnames.ob_items[c.co_argcount]
+                    func_args.append('*%s' % c.co_varnames.ob_items[c.co_argcount])
                 if c.co_flags & 8:  # CO_VARKEYWORDS
-                    func_args += ', **%s' % c.co_varnames.ob_items[c.co_argcount + 1]
+                    func_args.append('**%s' % c.co_varnames.ob_items[c.co_argcount + 1])
                 func_name = c.co_name.ob_sval
+                func_args_str = ''.join(func_args)
                 file_name = c.co_filename.ob_sval
-                code_res += 'Decompiled function "%s(%s)" from "%s":' % (func_name, func_args, file_name) + '\n'
+                code_res += 'Decompiled function "%s(%s)" from "%s":' % (func_name, func_args_str, file_name) + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
                 code_res += dec_code + '\n'
                 code_res += '--------------------------------------------------------------------------------' + '\n'
