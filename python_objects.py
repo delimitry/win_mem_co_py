@@ -654,7 +654,7 @@ def get_frame_object(process_handle, address):
         try_block_address = address + size + vars_size + int_size * 3 * i
         try_blocks.append(get_try_block(process_handle, try_block_address))
     frame_object.f_blockstack = try_blocks
-    data_object = DataObject(get_memory(process_handle, address + size + vars_size + CO_MAXBLOCKS * 3, ptr_size))
+    data_object = DataObject(get_memory(process_handle, address + size + vars_size + int_size * 3 * CO_MAXBLOCKS, ptr_size))
     frame_object.f_localsplus = data_object.read_addr_unpacked()
     return frame_object
 
