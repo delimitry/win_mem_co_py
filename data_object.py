@@ -204,7 +204,7 @@ def test():
     print hex(mem_data.read_int_unpacked())
     print hex(mem_data.read_long_unpacked())
     print hex(mem_data.read_addr_unpacked())
-    #print unpack_int(mem_data.read_int()) # this will failed
+    #print unpack_int(mem_data.read_int())  # this will fail
 
 if __name__ == '__main__':
     #test()
